@@ -1,0 +1,11 @@
+# runtime state & secrets — NEVER commit
+data/
+logs/
+
+# local session rules (seeded from workspace/CLAUDE.example.md on install)
+workspace/CLAUDE.md
+
+# macOS / node
+.DS_Store
+node_modules/
+*.log
