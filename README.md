@@ -2,6 +2,8 @@
 
 Add Claude Code to Notion. Comment `/cc ...` on any page and Claude replies in the same thread, with access to your Notion through MCP.
 
+It is the same interaction model as tagging Meta AI inside a thread on WhatsApp, Instagram, or Threads: you call the assistant from inside a conversation and it answers in that same thread, using the thread as context. Here the thread is a Notion comment, the assistant is Claude, and you host it yourself against your own workspace.
+
 This is a small self-hosted bot you run on a Mac. A Notion `comment.created` webhook reaches a listener through ngrok, the listener runs `claude -p` (headless), and the answer is posted back to the thread. A follow-up `/cc` in the same thread continues the same Claude session.
 
 No dependencies, Node 18+. Runs while the Mac is awake.
