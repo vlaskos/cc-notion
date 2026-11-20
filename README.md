@@ -12,17 +12,19 @@ No dependencies, Node 18+. Runs while the Mac is awake.
 
 1. You comment `/cc summarize this page` on a Notion page.
 2. Notion sends a `comment.created` webhook to ngrok, which forwards it to the listener on your Mac.
-3. The listener checks the signature, confirms you are the author, and confirms the text starts with `/cc`. Then it runs `claude -p` with the Notion MCP tools.
+3. The listener checks the signature, confirms the author is allowed (the owner, or anyone in the allowlist), and confirms the text starts with `/cc`. Then it runs `claude -p` with the Notion MCP tools.
 4. Claude's answer is posted as a reply in the same thread. A later `/cc` in that thread resumes the session (`--resume`).
 
 ```
 cc-notion/
-  server.mjs                   listener + worker
-  workspace/CLAUDE.example.md  rules for the headless session (copied to CLAUDE.md on first install)
-  launchd/*.plist              LaunchAgent templates (listener + ngrok)
+  server.mjs                       listener + worker
+  workspace/CLAUDE.example.md      rules for the headless session (copied to CLAUDE.md on first install)
+  workspace/allowlist.example.txt  allowed-authors template (copied to data/allowlist.txt on first install)
+  launchd/*.plist                  LaunchAgent templates (listener + ngrok)
   install.sh / uninstall.sh
-  data/state.json              verification token, processed comment IDs, per-thread session IDs (created automatically)
-  logs/                        daily log plus launchd and ngrok output
+  data/allowlist.txt               allowed comment authors, one Notion user ID per line (hot-reloaded)
+  data/state.json                  verification token, processed comment IDs, per-thread session IDs (created automatically)
+  logs/                            daily log plus launchd and ngrok output
 ```
 
 ## Setup (once)
@@ -45,13 +47,14 @@ cc-notion/
 security add-generic-password -a "$USER" -s cc-notion-token -w 'ntn_...'
 ```
 
-**5. Your Notion user ID:**
+**5. Your Notion user ID (and anyone else allowed to trigger `/cc`):**
+This query lists every workspace member the integration can see, each with their `id` and `name`:
 ```bash
 curl -s https://api.notion.com/v1/users \
   -H "Authorization: Bearer $(security find-generic-password -s cc-notion-token -w)" \
   -H "Notion-Version: 2022-06-28" | jq '.results[] | select(.type=="person") | {id, name}'
 ```
-Optional: leave `NOTION_USER_ID` empty and the listener logs the author ID of the first comment it sees.
+Set `NOTION_USER_ID` to your own `id` — the owner is always allowed. To let other people trigger `/cc`, add their `id`s to `data/allowlist.txt`, one per line (see the Allowlist section below). Optional: leave `NOTION_USER_ID` empty and, while no author is allowed yet, the listener logs the author ID of the first comment it sees.
 
 **6. ngrok:** `brew install ngrok`, `ngrok config add-authtoken ...`, then reserve a free static domain in the ngrok dashboard. If `brew` fails on a directory-permissions error, download the official binary into a directory on your PATH instead.
 
@@ -75,9 +78,16 @@ tail -f logs/$(date +%F).log
 
 ## Filtering
 - Events without a valid `X-Notion-Signature` are dropped.
-- Bot and other-author comments are filtered from the event's `authors` field before any API call.
+- Only comments from allowed authors (the owner plus `data/allowlist.txt`) are processed; others are filtered from the event's `authors` field before any API call.
 - Only comments starting with `/cc` are processed.
 - Each comment ID runs once; jobs run one at a time.
+
+## Allowlist (who can trigger `/cc`)
+By default only the owner (`NOTION_USER_ID`) is allowed. To let other people trigger `/cc`, add their Notion user IDs to `data/allowlist.txt`, one per line — `#` starts a comment and blank lines are ignored. Get the IDs with the `/v1/users` query in step 5.
+
+The file is **hot-reloaded**: it is re-read whenever its modification time changes, so adding or removing someone takes effect on the next `/cc` — no restart. The owner from `NOTION_USER_ID` is always allowed even if the file is empty or missing, so you cannot lock yourself out.
+
+**Security:** anyone you add acts with the integration's full read/write access on every page the integration is connected to, because the headless session runs with `--permission-mode acceptEdits`. Only add people you trust, and limit which pages the integration is connected to (step 2). The bot's replies are visible to anyone who can see the page.
 
 ## Catch-up (comments made while the Mac was asleep or off)
 The webhook only reaches the listener while the Mac is awake. To pick up `/cc` comments made during downtime, the listener runs a catch-up sweep, not on a timer but only:

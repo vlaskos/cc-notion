@@ -14,6 +14,8 @@ PATHS="$(dirname "$NODE"):$(dirname "$CLAUDE"):/usr/bin:/bin:/usr/sbin:/sbin"
 mkdir -p "$DIR/logs" "$DIR/data" "$HOME/Library/LaunchAgents"
 # First run: seed the local rules file from the example. Your edits to CLAUDE.md stay local (gitignored).
 [ -f "$DIR/workspace/CLAUDE.md" ] || cp "$DIR/workspace/CLAUDE.example.md" "$DIR/workspace/CLAUDE.md"
+# First run: seed the local allowlist from the example. data/ is gitignored, so real IDs stay local.
+[ -f "$DIR/data/allowlist.txt" ] || cp "$DIR/workspace/allowlist.example.txt" "$DIR/data/allowlist.txt"
 
 for name in com.cc-notion.listener com.cc-notion.ngrok; do
   dst="$HOME/Library/LaunchAgents/$name.plist"

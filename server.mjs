@@ -3,7 +3,7 @@
 import http from 'node:http';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, appendFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,7 +15,11 @@ for (const d of [DATA, LOGS]) mkdirSync(d, { recursive: true });
 
 const CFG = {
   port: Number(process.env.PORT || 8787),
-  userId: (process.env.NOTION_USER_ID || '').trim(),
+  userIdsEnv: new Set(
+    [process.env.NOTION_USER_ID, process.env.NOTION_USER_IDS]
+      .filter(Boolean).join(',').split(',').map(s => s.trim()).filter(Boolean)
+  ),
+  allowlistFile: join(DATA, 'allowlist.txt'),
   trigger: (process.env.TRIGGER || '/cc').toLowerCase(),
   claudeBin: process.env.CLAUDE_BIN || 'claude',
   allowedTools: (process.env.ALLOWED_TOOLS || 'mcp__notion').split(',').map(s => s.trim()).filter(Boolean),
@@ -51,6 +55,30 @@ const NOTION_TOKEN = readKeychain(CFG.keychainService);
 if (!NOTION_TOKEN) {
   log(`FATAL: no token in Keychain (service "${CFG.keychainService}"). See README, step 4.`);
   process.exit(1);
+}
+
+// ---------- allowlist (env seed + hot-reloaded file) ----------
+// Allowed authors = NOTION_USER_ID(S) from env (owner, always allowed) plus the
+// IDs in data/allowlist.txt. The file is re-read when its mtime changes, so adding
+// or removing a guest takes effect on the next /cc without restarting the service.
+let _allow = { mtimeMs: -1, ids: new Set() };
+function allowedIds() {
+  let mtimeMs = 0;
+  try { mtimeMs = statSync(CFG.allowlistFile).mtimeMs; } catch { mtimeMs = 0; }
+  if (mtimeMs !== _allow.mtimeMs) {
+    const ids = new Set(CFG.userIdsEnv);
+    if (mtimeMs) {
+      try {
+        for (const line of readFileSync(CFG.allowlistFile, 'utf8').split('\n')) {
+          const id = line.replace(/#.*$/, '').trim();
+          if (id) ids.add(id);
+        }
+      } catch (e) { log('allowlist read failed:', e.message); }
+    }
+    _allow = { mtimeMs, ids };
+    log(`allowlist reloaded: ${ids.size} author(s)`);
+  }
+  return _allow.ids;
 }
 
 // ---------- state ----------
@@ -172,7 +200,8 @@ function buildPrompt({ request, pageId, comment, history }) {
 // Dedup and filters live here, so the two paths never process the same comment twice.
 async function maybeProcess(c, pageId) {
   if (!c || !c.id || state.seen[c.id]) return;
-  if (c.created_by?.id !== CFG.userId) return;              // only the configured user
+  const allow = allowedIds();
+  if (!allow.has(c.created_by?.id)) return;                 // only allowed authors (env + allowlist file)
   const text = plain(c).trim();
   if (!text.toLowerCase().startsWith(CFG.trigger)) return;  // only the trigger
   state.seen[c.id] = Date.now();
@@ -188,7 +217,7 @@ async function maybeProcess(c, pageId) {
   let history = '';
   if (!resumeId) {
     const thread = (await listComments(parentIdOf(c))).filter(x => x.discussion_id === c.discussion_id && x.id !== c.id);
-    history = thread.map(x => `- ${x.created_by?.id === CFG.userId ? 'user' : 'bot'}: ${plain(x)}`).join('\n');
+    history = thread.map(x => `- ${allow.has(x.created_by?.id) ? 'user' : 'bot'}: ${plain(x)}`).join('\n');
   }
 
   const started = Date.now();
@@ -206,14 +235,15 @@ async function handle(event) {
   const id = event.entity?.id;
   if (!id || state.seen[id]) return;
 
+  const allow = allowedIds();
   // Fast filter without an API call: skip bot and other-author comments immediately.
-  if (CFG.userId && Array.isArray(event.authors) && !event.authors.some(a => a.id === CFG.userId)) return;
+  if (allow.size && Array.isArray(event.authors) && !event.authors.some(a => allow.has(a.id))) return;
 
   const c = await getComment(id, event);
   if (!c) return log('comment not found:', id);
 
-  if (!CFG.userId) {
-    return log(`NOTION_USER_ID is not set. Author of this comment: ${c.created_by?.id} (${c.created_by?.object}). If that is you, put it in the plist.`);
+  if (!allow.size) {
+    return log(`No allowed authors configured (NOTION_USER_ID / data/allowlist.txt). Author of this comment: ${c.created_by?.id} (${c.created_by?.object}). If that is you, add it.`);
   }
   await maybeProcess(c, c.parent?.page_id || event.data?.page_id);
 }
@@ -248,6 +278,7 @@ async function sweep(reason) {
   sweeping = true;
   const cutoff = Date.now() - CFG.sweepMaxAgeH * 3_600_000;
   let scanned = 0, found = 0;
+  const allow = allowedIds();
   try {
     const pages = await searchRecentPages(CFG.sweepTopN);
     for (const pid of pages) {
@@ -256,7 +287,7 @@ async function sweep(reason) {
       scanned++;
       for (const c of comments) {
         if (state.seen[c.id]) continue;
-        if (c.created_by?.id !== CFG.userId) continue;
+        if (!allow.has(c.created_by?.id)) continue;
         if (!plain(c).trim().toLowerCase().startsWith(CFG.trigger)) continue;
         if (c.created_time && Date.parse(c.created_time) < cutoff) continue;
         found++;

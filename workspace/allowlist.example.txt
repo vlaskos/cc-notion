@@ -1,0 +1,17 @@
+# cc-notion allowlist — one Notion user ID per line.
+# Lines starting with # and blank lines are ignored.
+#
+# Edited live: changes take effect on the next /cc, no restart needed.
+# The owner from NOTION_USER_ID is always allowed, even if absent here.
+#
+# Get the IDs of workspace members the integration can see:
+#   curl -s https://api.notion.com/v1/users \
+#     -H "Authorization: Bearer $(security find-generic-password -s cc-notion-token -w)" \
+#     -H "Notion-Version: 2022-06-28" | jq '.results[] | select(.type=="person") | {id, name}'
+#
+# WARNING: anyone listed here can read and write your Notion through the bot,
+# because the headless session runs with --permission-mode acceptEdits.
+# Only add people you trust.
+#
+# Example (remove the # and use a real UUID):
+# 11111111-2222-3333-4444-555555555555
