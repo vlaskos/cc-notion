@@ -64,6 +64,8 @@ NGROK_DOMAIN=xxx.ngrok-free.app NOTION_USER_ID=<id> ALLOWED_TOOLS=mcp__notion ./
 ```
 Use `ALLOWED_TOOLS=mcp__claude_ai_Notion` instead if you reuse Claude's managed connector. First install copies `workspace/CLAUDE.example.md` to `workspace/CLAUDE.md`; edit that local copy to set the rules for your workspace. Check: `curl https://xxx.ngrok-free.app/health` returns `ok`.
 
+To avoid re-passing these on every reinstall, copy `install.env.example` to `install.env` (gitignored) and set `NGROK_DOMAIN`, `NOTION_USER_ID`, and `ALLOWED_TOOLS` there — `install.sh` sources it automatically, so your settings are not reset.
+
 **8. Webhook.** Integration settings → Webhooks → Create subscription. URL `https://xxx.ngrok-free.app/notion`, event `comment.created`. Notion sends a verification token and the listener saves it. Copy it into the Verify field:
 ```bash
 jq -r .verificationToken data/state.json | pbcopy

@@ -2,6 +2,10 @@
 # Usage: NGROK_DOMAIN=xxx.ngrok-free.app NOTION_USER_ID=... ./install.sh
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
+# Optional local config (gitignored) so re-running ./install.sh keeps your settings
+# instead of resetting them. Put NGROK_DOMAIN / NOTION_USER_ID / ALLOWED_TOOLS here;
+# see install.env.example.
+[ -f "$DIR/install.env" ] && . "$DIR/install.env"
 : "${NGROK_DOMAIN:?export NGROK_DOMAIN=your-domain.ngrok-free.app}"
 NOTION_USER_ID="${NOTION_USER_ID:-}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS:-mcp__notion}"

@@ -5,6 +5,9 @@ logs/
 # local session rules (seeded from workspace/CLAUDE.example.md on install)
 workspace/CLAUDE.md
 
+# local install config (host-specific values & IDs; seeded from install.env.example)
+install.env
+
 # macOS / node
 .DS_Store
 node_modules/
